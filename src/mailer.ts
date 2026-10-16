@@ -386,6 +386,10 @@ export class WorkerMailer {
   }
 
   private async ehlo() {
+    // Each EHLO answer replaces what an earlier one said. After STARTTLS this
+    // is required (RFC 3207 §4.2): what the server claimed in the clear may
+    // have been altered on the way, and may differ from what it offers now.
+    this.resetCapabilities()
     await this.writeLine(`EHLO 127.0.0.1`)
     const response = await this.readTimeout()
     if (response.startsWith('421')) {
@@ -397,6 +401,13 @@ export class WorkerMailer {
       return
     }
     this.parseCapabilities(response)
+  }
+
+  private resetCapabilities() {
+    this.allowAuth = false
+    this.authTypeSupported = []
+    this.supportsStartTls = false
+    this.supportsDSN = false
   }
 
   private async helo() {

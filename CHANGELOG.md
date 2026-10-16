@@ -1,5 +1,11 @@
 # worker-mailer
 
+## 1.4.2 (fork: @maxceem/worker-mailer)
+
+### Patch Changes
+
+- Each EHLO answer replaces the capabilities an earlier one advertised, as RFC 3207 requires after STARTTLS. Previously a sign-in method offered only before encryption could still be chosen afterwards and refused by the server.
+
 ## 1.4.1 (fork: @maxceem/worker-mailer)
 
 ### Patch Changes

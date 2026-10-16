@@ -141,6 +141,35 @@ describe('WorkerMailer hardening', () => {
     ).rejects.toThrow(/closed/)
   })
 
+  it('forgets what the server offered before STARTTLS', async () => {
+    const tlsReader = { read: vi.fn(), releaseLock: vi.fn() }
+    mockSocket.startTls.mockReturnValue({
+      readable: { getReader: () => tlsReader },
+      writable: { getWriter: () => mockWriter },
+      close: mockSocket.close,
+    })
+    mockReader.read
+      .mockResolvedValueOnce(line('220 smtp.example.com ready\r\n'))
+      .mockResolvedValueOnce(line('250-smtp.example.com\r\n250-STARTTLS\r\n250 AUTH PLAIN\r\n'))
+      .mockResolvedValueOnce(line('220 Go ahead\r\n'))
+    tlsReader.read
+      .mockResolvedValueOnce(line('250-smtp.example.com\r\n250 AUTH LOGIN\r\n'))
+      .mockResolvedValueOnce(line('334 VXNlcm5hbWU6\r\n'))
+      .mockResolvedValueOnce(line('334 UGFzc3dvcmQ6\r\n'))
+      .mockResolvedValueOnce(line('235 Authentication successful\r\n'))
+
+    await WorkerMailer.connect({
+      ...OPTIONS,
+      port: 587,
+      secure: false,
+      authType: ['plain', 'login'],
+    })
+
+    // PLAIN was only offered before encryption, so LOGIN is what is used.
+    expect(written()).toContain('AUTH LOGIN')
+    expect(written()).not.toContain('AUTH PLAIN')
+  })
+
   it('finishes RSET before reporting a refused recipient, and logs no address', async () => {
     const logs = [
       vi.spyOn(console, 'error').mockImplementation(() => {}),
