@@ -1,5 +1,14 @@
 # worker-mailer
 
+## 1.4.1 (fork: @maxceem/worker-mailer)
+
+### Patch Changes
+
+- A custom BCC header is dropped in any letter case (`bcc`, `bCc`), not only `BCC` and `Bcc`.
+- Writes time out after `socketTimeoutMs` and close the socket, so a server that stops draining can no longer hold a send, a connect or a close forever.
+- A `close()` that arrives while a command is in flight drops the socket instead of writing `QUIT`, which would have read the reply meant for that command; the email in flight is still rejected.
+- `send()` after `close()`, or after the connection failed, rejects at once instead of never settling; an email dequeued after shutdown is rejected too.
+
 ## 1.4.0 (fork: @maxceem/worker-mailer)
 
 ### Minor Changes

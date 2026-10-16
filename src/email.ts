@@ -388,8 +388,9 @@ export class Email {
    * header would show every recipient who else was copied.
    */
   private resolveBCC() {
-    delete this.headers['BCC']
-    delete this.headers['Bcc']
+    for (const name of Object.keys(this.headers)) {
+      if (name.toLowerCase() === 'bcc') delete this.headers[name]
+    }
   }
 
 }

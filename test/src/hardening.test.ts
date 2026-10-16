@@ -89,6 +89,58 @@ describe('WorkerMailer hardening', () => {
     expect(mockSocket.close).toHaveBeenCalledOnce()
   })
 
+  it('closes the socket when a write stalls, instead of waiting forever', async () => {
+    mockReader.read.mockResolvedValueOnce(SIGNED_IN[0])
+    mockWriter.write.mockImplementation(() => new Promise(() => {}))
+
+    await expect(
+      WorkerMailer.connect({ ...OPTIONS, socketTimeoutMs: 50 }),
+    ).rejects.toThrow(/Timeout while writing/)
+    expect(mockSocket.close).toHaveBeenCalledOnce()
+  })
+
+  it('drops the socket instead of writing QUIT when closed mid-exchange, and still rejects the send', async () => {
+    mockReader.read
+      .mockResolvedValueOnce(SIGNED_IN[0])
+      .mockResolvedValueOnce(SIGNED_IN[1])
+      .mockResolvedValueOnce(SIGNED_IN[2])
+      .mockResolvedValueOnce(line('250 OK\r\n')) // MAIL FROM
+      .mockResolvedValueOnce(line('550 unknown user\r\n')) // RCPT TO
+      // RSET is never answered until the socket closes.
+      .mockImplementation(
+        () =>
+          new Promise(resolve => {
+            mockSocket.close.mockImplementation(async () =>
+              resolve({ done: true, value: undefined }),
+            )
+          }),
+      )
+    const mailer = await WorkerMailer.connect({ ...OPTIONS, responseTimeoutMs: 5_000 })
+    const sent = mailer.send({ from: 'sender@example.com', to: 'nobody@example.com', subject: 'Hi', text: 'Hi' })
+    sent.catch(() => {})
+    await vi.waitFor(() => expect(written()).toMatch(/RSET\r\n$/))
+
+    await mailer.close()
+
+    expect(written()).not.toContain('QUIT')
+    expect(mockSocket.close).toHaveBeenCalledOnce()
+    await expect(sent).rejects.toThrow()
+  })
+
+  it('rejects a send made after close instead of leaving it pending', async () => {
+    mockReader.read
+      .mockResolvedValueOnce(SIGNED_IN[0])
+      .mockResolvedValueOnce(SIGNED_IN[1])
+      .mockResolvedValueOnce(SIGNED_IN[2])
+      .mockResolvedValueOnce(line('221 Bye\r\n'))
+    const mailer = await WorkerMailer.connect(OPTIONS)
+    await mailer.close()
+
+    await expect(
+      mailer.send({ from: 'sender@example.com', to: 'a@example.com', subject: 'Hi', text: 'Hi' }),
+    ).rejects.toThrow(/closed/)
+  })
+
   it('finishes RSET before reporting a refused recipient, and logs no address', async () => {
     const logs = [
       vi.spyOn(console, 'error').mockImplementation(() => {}),
@@ -165,6 +217,13 @@ describe('Email input validation', () => {
       /^=\?UTF-8\?Q\?[^"]+\?= <anna@example\.com>$/,
     )
     expect(formatAddress({ email: 'plain@example.com' })).toBe('plain@example.com')
+  })
+
+  it('never writes a BCC header, in any letter case', () => {
+    for (const name of ['BCC', 'Bcc', 'bcc', 'bCc']) {
+      const data = new Email({ ...base, headers: { [name]: 'hidden@example.com' } }).getEmailData()
+      expect(data, name).not.toContain('hidden@example.com')
+    }
   })
 
   it('accepts an ordinary email', () => {

@@ -92,6 +92,12 @@ export class WorkerMailer {
   /** The one shutdown in progress, so a second `close` waits for it instead of racing it. */
   private closing: Promise<void> | null = null
   private socketClosed = false
+  /**
+   * Whether a command is in flight in the mail loop, from MAIL FROM until its
+   * RSET has been answered. A close that arrives meanwhile drops the socket
+   * instead of writing QUIT, which would read the reply meant for that command.
+   */
+  private exchanging = false
 
   private emailSending: Email | null = null
   private emailToBeSent = new BlockingQueue<Email>()
@@ -164,7 +170,15 @@ export class WorkerMailer {
   }
 
   public send(options: EmailOptions): Promise<void> {
-    const email = new Email(options)
+    if (this.closing || !this.active) {
+      return Promise.reject(new Error('WorkerMailer is closed'))
+    }
+    let email: Email
+    try {
+      email = new Email(options)
+    } catch (error) {
+      return Promise.reject(error)
+    }
     this.emailToBeSent.enqueue(email)
     return email.sent
   }
@@ -227,7 +241,18 @@ export class WorkerMailer {
 
   private async write(data: string) {
     this.logger.debug('Write to socket:\n' + data)
-    await this.writer.write(encode(data))
+    try {
+      // A write the server never drains would otherwise wait forever, past
+      // every response timeout, with the socket left open.
+      await execTimeout(
+        this.writer.write(encode(data)),
+        this.socketTimeoutMs,
+        new Error('Timeout while writing to smtp server'),
+      )
+    } catch (error) {
+      this.closeSocket()
+      throw error
+    }
   }
 
   private async initializeSmtpSession() {
@@ -256,6 +281,13 @@ export class WorkerMailer {
   private async start() {
     while (this.active) {
       this.emailSending = await this.emailToBeSent.dequeue()
+      if (!this.active) {
+        // Closed while this one waited: it is never sent.
+        this.emailSending.setSentError(new Error('WorkerMailer is shutting down'))
+        this.emailSending = null
+        return
+      }
+      this.exchanging = true
       try {
         await this.mail()
         await this.rcpt()
@@ -270,6 +302,7 @@ export class WorkerMailer {
         const failed = this.emailSending!
         this.emailSending = null
         if (!this.active) {
+          this.exchanging = false
           failed.setSentError(e)
           return
         }
@@ -278,13 +311,16 @@ export class WorkerMailer {
         try {
           await this.rset()
         } catch (resetError: any) {
+          this.exchanging = false
           await this.close(resetError)
           failed.setSentError(e)
           return
         }
+        this.exchanging = false
         failed.setSentError(e)
         continue
       }
+      this.exchanging = false
       this.emailSending = null
     }
   }
@@ -307,7 +343,7 @@ export class WorkerMailer {
     }
 
     try {
-      if (!this.socketClosed) {
+      if (!this.socketClosed && !this.exchanging) {
         await this.writeLine('QUIT')
         await this.readTimeout()
       }
