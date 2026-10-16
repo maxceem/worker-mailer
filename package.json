@@ -1,6 +1,7 @@
 {
-  "name": "worker-mailer",
+  "name": "@maxceem/worker-mailer",
   "version": "1.2.1",
+  "description": "SMTP client for Cloudflare Workers. A fork of zou-yu/worker-mailer, released as a GitHub Release tarball.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -14,14 +15,18 @@
   "author": "zou-yu",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zou-yu/worker-mailer.git"
+    "url": "https://github.com/maxceem/worker-mailer.git"
+  },
+  "homepage": "https://github.com/maxceem/worker-mailer",
+  "bugs": {
+    "url": "https://github.com/maxceem/worker-mailer/issues"
   },
   "license": "MIT",
-  "homepage": "https://github.com/zou-yu/worker-mailer",
   "scripts": {
     "build": "tsup",
     "test": "vitest",
-    "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore"
+    "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore",
+    "check": "tsc --noEmit && vitest run && tsup"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.9",
@@ -36,5 +41,6 @@
     "typescript": "^5.5.2",
     "vitest": "1.5.0",
     "wrangler": "^3.60.3"
-  }
+  },
+  "packageManager": "pnpm@12.3.4"
 }
