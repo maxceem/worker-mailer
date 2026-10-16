@@ -562,7 +562,8 @@ export class WorkerMailer {
   private async mail() {
     let message = `MAIL FROM: <${this.emailSending!.from.email}>`
     if (this.supportsDSN) {
-      message += ` ${this.retBuilder()}`
+      const ret = this.retBuilder()
+      if (ret) message += ` ${ret}`
       const envelopeId = this.emailSending?.dsnOverride?.envelopeId
       if (envelopeId) {
         if (!/^[!-~]+$/.test(envelopeId) || /[+=]/.test(envelopeId)) {
@@ -623,7 +624,16 @@ export class WorkerMailer {
     }
   }
 
+  /**
+   * The RCPT TO `NOTIFY` parameter, or nothing when neither the email nor the
+   * mailer asks for one. Left out, the server applies the standard default
+   * (RFC 3461 §4.1: report failures and delays) and bounces reach the sender;
+   * `NOTIFY=NEVER` is written only when a caller turns every report off.
+   */
   private notificationBuilder() {
+    const configured =
+      this.emailSending?.dsnOverride?.NOTIFY ?? this.dsn?.NOTIFY
+    if (!configured) return ''
     const notifications: string[] = []
     if (
       (this.emailSending?.dsnOverride?.NOTIFY &&

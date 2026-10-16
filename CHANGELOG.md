@@ -1,5 +1,12 @@
 # worker-mailer
 
+## 1.4.3 (fork: @maxceem/worker-mailer)
+
+### Patch Changes
+
+- With no `dsn.NOTIFY` configured, RCPT TO carries no `NOTIFY` parameter, so a server that supports DSN applies its default and reports failures and delays to the sender. It used to write `NOTIFY=NEVER`, which asked for no bounces at all. `NOTIFY=NEVER` is now written only when every notification is explicitly turned off.
+- `MAIL FROM` no longer ends with a stray space when no `RET` is configured.
+
 ## 1.4.2 (fork: @maxceem/worker-mailer)
 
 ### Patch Changes

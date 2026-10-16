@@ -259,3 +259,58 @@ describe('Email input validation', () => {
     expect(() => new Email({ ...base, cc: 'cc@example.com', reply: 'r@example.com' })).not.toThrow()
   })
 })
+
+describe('Delivery status notifications', () => {
+  let mockSocket: any
+  let mockReader: any
+  let mockWriter: any
+  const written = () =>
+    mockWriter.write.mock.calls
+      .map(([chunk]: [Uint8Array]) => new TextDecoder().decode(chunk))
+      .join('')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockReader = { read: vi.fn(), releaseLock: vi.fn() }
+    mockWriter = { write: vi.fn(), releaseLock: vi.fn() }
+    mockSocket = {
+      readable: { getReader: () => mockReader },
+      writable: { getWriter: () => mockWriter },
+      opened: Promise.resolve(),
+      close: vi.fn(async () => {}),
+      startTls: vi.fn(),
+    }
+    ;(connect as any).mockReturnValue(mockSocket)
+  })
+
+  async function sendThroughDsnServer(options: Record<string, unknown> = {}) {
+    mockReader.read
+      .mockResolvedValueOnce(line('220 smtp.example.com ready\r\n'))
+      .mockResolvedValueOnce(line('250-smtp.example.com\r\n250-DSN\r\n250 AUTH PLAIN\r\n'))
+      .mockResolvedValueOnce(line('235 Authentication successful\r\n'))
+      .mockResolvedValueOnce(line('250 OK\r\n')) // MAIL FROM
+      .mockResolvedValueOnce(line('250 OK\r\n')) // RCPT TO
+      .mockResolvedValueOnce(line('354 Go ahead\r\n')) // DATA
+      .mockResolvedValueOnce(line('250 Queued\r\n')) // body
+      .mockResolvedValueOnce(line('221 Bye\r\n')) // QUIT
+    await WorkerMailer.send(
+      { ...OPTIONS, ...options },
+      { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', text: 'Hi' },
+    )
+    return written()
+  }
+
+  it('asks for no particular reports by default, so bounces come back to the sender', async () => {
+    const wire = await sendThroughDsnServer()
+    expect(wire).toContain('MAIL FROM: <sender@example.com>\r\n')
+    expect(wire).toContain('RCPT TO: <recipient@example.com>\r\n')
+    expect(wire).not.toContain('NOTIFY')
+  })
+
+  it('writes NOTIFY=NEVER only when every report is turned off', async () => {
+    const wire = await sendThroughDsnServer({
+      dsn: { NOTIFY: { SUCCESS: false, FAILURE: false, DELAY: false } },
+    })
+    expect(wire).toContain('RCPT TO: <recipient@example.com> NOTIFY=NEVER\r\n')
+  })
+})
