@@ -1,6 +1,6 @@
 # Worker Mailer
 
-> **This is a fork** of [zou-yu/worker-mailer](https://github.com/zou-yu/worker-mailer), maintained for use in [@maxceem](https://github.com/maxceem)'s projects. It is published as `@maxceem/worker-mailer` through GitHub Releases rather than npm: depend on a release tarball, e.g. `https://github.com/maxceem/worker-mailer/releases/download/v1.2.1/maxceem-worker-mailer-1.2.1.tgz`. Pushing a `v*` tag that matches `package.json` runs `pnpm check` and attaches the packed tarball to a release. All credit for the library goes to the original author; it remains MIT licensed.
+> **This is a fork** of [zou-yu/worker-mailer](https://github.com/zou-yu/worker-mailer), maintained for use in [@maxceem](https://github.com/maxceem)'s projects. It is published as `@maxceem/worker-mailer` through GitHub Releases rather than npm: depend on a release tarball, e.g. `https://github.com/maxceem/worker-mailer/releases/download/v1.3.0/maxceem-worker-mailer-1.3.0.tgz`. Pushing a `v*` tag that matches `package.json` runs `pnpm check` and attaches the packed tarball to a release. All credit for the library goes to the original author; it remains MIT licensed.
 
 [English](./README.md) | [简体中文](./README_zh-CN.md)
 
@@ -105,6 +105,7 @@ type WorkerMailerOptions = {
   port: number // SMTP server port (usually 587 or 465)
   secure?: boolean // Use TLS (default: false)
   startTls?: boolean // Upgrade to TLS if SMTP server supports (default: true)
+  allowPlaintextAuth?: boolean // Send credentials without TLS (default: false). Unless the connection is `secure` or a STARTTLS upgrade completed, authentication is refused rather than sending the password in the clear.
   credentials?: {
     // SMTP authentication credentials
     username: string

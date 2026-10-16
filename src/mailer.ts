@@ -13,6 +13,15 @@ export type WorkerMailerOptions = {
   port: number
   secure?: boolean
   startTls?: boolean
+  /**
+   * Send credentials over a connection that is not encrypted. Off by default:
+   * unless the connection is TLS from the start (`secure`) or the server
+   * completed a STARTTLS upgrade, the client refuses to authenticate rather
+   * than send the password in the clear. Without this, a server, or anything
+   * between it and the Worker, that leaves STARTTLS out of its EHLO answer
+   * would receive the credentials unencrypted.
+   */
+  allowPlaintextAuth?: boolean
   credentials?: Credentials
   authType?: AuthType | AuthType[]
   logLevel?: LogLevel
@@ -44,6 +53,9 @@ export class WorkerMailer {
   private readonly port: number
   private readonly secure: boolean
   private readonly startTls: boolean
+  private readonly allowPlaintextAuth: boolean
+  /** Whether the connection is encrypted: TLS from the start, or after STARTTLS. */
+  private encrypted: boolean
   private readonly authType: AuthType[]
   private readonly credentials?: Credentials
 
@@ -99,11 +111,13 @@ export class WorkerMailer {
       this.authType = []
     }
     this.startTls = options.startTls === undefined ? true : options.startTls
+    this.allowPlaintextAuth = options.allowPlaintextAuth ?? false
+    this.encrypted = this.secure
     this.credentials = options.credentials
     this.dsn = options.dsn || {}
 
     this.socketTimeoutMs = options.socketTimeoutMs || 60_000
-    this.responseTimeoutMs = options.socketTimeoutMs || 30_000
+    this.responseTimeoutMs = options.responseTimeoutMs || 30_000
     this.socket = connect(
       {
         hostname: this.host,
@@ -198,6 +212,13 @@ export class WorkerMailer {
       await this.tls()
       // Re-issue EHLO after STARTTLS as required by RFC 3207
       await this.ehlo()
+    }
+
+    if (this.credentials && !this.encrypted && !this.allowPlaintextAuth) {
+      throw new Error(
+        'Refusing to send credentials over an unencrypted connection: the server did not offer STARTTLS. ' +
+          'Connect with `secure: true` (usually port 465), or set `allowPlaintextAuth` to accept the risk.',
+      )
     }
 
     await this.auth()
@@ -307,6 +328,7 @@ export class WorkerMailer {
     this.socket = this.socket.startTls()
     this.reader = this.socket.readable.getReader()
     this.writer = this.socket.writable.getWriter()
+    this.encrypted = true
   }
 
   private parseCapabilities(response: string) {

@@ -58,6 +58,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -213,7 +214,38 @@ describe('WorkerMailer', () => {
       expect(mockSocket.startTls).toHaveBeenCalled()
     })
 
-    it('should handle server without STARTTLS capability', async () => {
+    it('should refuse to authenticate when the server does not offer STARTTLS', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN LOGIN\r\n250 HELP\r\n',
+          ),
+        })
+
+      await expect(
+        WorkerMailer.connect({
+          host: 'smtp.example.com',
+          port: 587,
+          credentials: {
+            username: 'test@example.com',
+            password: 'password',
+          },
+          authType: ['plain'],
+        }),
+      ).rejects.toThrow(/unencrypted connection/)
+
+      // The password never reached the socket.
+      const written = mockWriter.write.mock.calls
+        .map(([chunk]: [Uint8Array]) => new TextDecoder().decode(chunk))
+        .join('')
+      expect(written).not.toMatch(/AUTH/)
+      expect(mockSocket.startTls).not.toHaveBeenCalled()
+    })
+
+    it('should authenticate without STARTTLS only when plaintext auth is allowed', async () => {
       mockReader.read
         .mockResolvedValueOnce({
           value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
@@ -230,6 +262,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -262,6 +295,7 @@ describe('WorkerMailer', () => {
       await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -293,6 +327,7 @@ describe('WorkerMailer', () => {
         WorkerMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          allowPlaintextAuth: true,
           credentials: {
             username: 'test@example.com',
             password: 'wrong',
@@ -336,6 +371,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -422,6 +458,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -514,6 +551,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -602,6 +640,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -646,6 +685,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -685,6 +725,7 @@ describe('WorkerMailer', () => {
       const mailer = await WorkerMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        allowPlaintextAuth: true,
         credentials: {
           username: 'test@example.com',
           password: 'password',

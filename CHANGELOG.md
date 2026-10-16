@@ -1,5 +1,15 @@
 # worker-mailer
 
+## 1.3.0 (fork: @maxceem/worker-mailer)
+
+### Minor Changes
+
+- Refuse to authenticate over an unencrypted connection. With `startTls` (the default) and a server that does not offer STARTTLS, the client used to continue in the clear and send the credentials anyway, so anything able to strip STARTTLS from the server's answer could read the password. It now throws before sending them, unless the connection is `secure` or the upgrade completed. `allowPlaintextAuth: true` restores the old behaviour.
+
+### Patch Changes
+
+- `responseTimeoutMs` is honoured; it was read from `socketTimeoutMs`.
+
 ## 1.2.1
 
 ### Patch Changes

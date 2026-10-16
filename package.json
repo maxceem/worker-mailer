@@ -1,6 +1,6 @@
 {
   "name": "@maxceem/worker-mailer",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "SMTP client for Cloudflare Workers. A fork of zou-yu/worker-mailer, released as a GitHub Release tarball.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
