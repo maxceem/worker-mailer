@@ -35,6 +35,49 @@ export function encodeHeader(text: string): string {
 
 export type User = { name?: string; email: string }
 
+/**
+ * An address as it may appear in an SMTP command and a header: something@
+ * something, with no whitespace, control characters, angle brackets or other
+ * characters that would end the `<...>` it is written in. Anything else could
+ * add a command or a header, so it is refused rather than escaped.
+ */
+const ADDRESS = /^[^\s<>()[\],;:"\\@\x00-\x1f\x7f]+@[^\s<>()[\],;:"\\@\x00-\x1f\x7f]+$/
+
+/** A line break or any other control character, which would end a header line. */
+const CONTROL = /[\x00-\x08\x0a-\x1f\x7f]/
+
+/** A header name: printable ASCII without a colon (RFC 5322). */
+const HEADER_NAME = /^[!-9;-~]+$/
+
+function checkAddress(user: User, field: string): User {
+  if (typeof user.email !== 'string' || !ADDRESS.test(user.email)) {
+    throw new Error(`Invalid email address in ${field}`)
+  }
+  if (user.name !== undefined && CONTROL.test(user.name)) {
+    throw new Error(`Invalid display name in ${field}: control characters are not allowed`)
+  }
+  return user
+}
+
+function checkText(value: string, field: string): string {
+  if (CONTROL.test(value)) {
+    throw new Error(`Invalid ${field}: control characters are not allowed`)
+  }
+  return value
+}
+
+/**
+ * `"Name" <address>` for an ASCII name, with quotes and backslashes escaped;
+ * an encoded word outside quotes for any other, since RFC 2047 does not allow
+ * one inside a quoted string.
+ */
+export function formatAddress(user: User): string {
+  if (!user.name) return user.email
+  const encoded = encodeHeader(user.name)
+  if (encoded !== user.name) return `${encoded} <${user.email}>`
+  return `"${user.name.replace(/[\\"]/g, '\\$&')}" <${user.email}>`
+}
+
 export type EmailOptions = {
   from: string | User
   to: string | string[] | User | User[]
@@ -123,6 +166,40 @@ export class Email {
     this.attachments = options.attachments
     this.dsnOverride = options.dsnOverride
     this.headers = options.headers || {}
+    this.validate()
+  }
+
+  /**
+   * Refuses anything that would reach the SMTP conversation or a header line
+   * with a line break in it: addresses, display names, the subject, header
+   * names and values, and attachment names. Bodies are encoded, so they may
+   * contain anything.
+   */
+  private validate() {
+    if (!this.to?.length) throw new Error('At least one recipient is required')
+    checkAddress(this.from, 'from')
+    if (this.reply) checkAddress(this.reply, 'reply')
+    for (const [field, users] of [
+      ['to', this.to],
+      ['cc', this.cc],
+      ['bcc', this.bcc],
+    ] as const) {
+      for (const user of users ?? []) checkAddress(user, field)
+    }
+    checkText(this.subject ?? '', 'subject')
+    for (const [name, value] of Object.entries(this.headers)) {
+      if (!HEADER_NAME.test(name)) throw new Error('Invalid header name')
+      checkText(String(value), `header ${name}`)
+    }
+    for (const attachment of this.attachments ?? []) {
+      checkText(attachment.filename, 'attachment filename')
+      if (attachment.filename.includes('"')) {
+        throw new Error('Invalid attachment filename: quotes are not allowed')
+      }
+      if (attachment.mimeType !== undefined) {
+        checkText(attachment.mimeType, 'attachment mimeType')
+      }
+    }
   }
 
   private static toUsers(
@@ -267,23 +344,14 @@ export class Email {
     if (this.headers['From']) {
       return
     }
-    let from = this.from.email
-    if (this.from.name) {
-      from = `"${encodeHeader(this.from.name)}" <${from}>`
-    }
-    this.headers['From'] = from
+    this.headers['From'] = formatAddress(this.from)
   }
 
   private resolveTo() {
     if (this.headers['To']) {
       return
     }
-    const toAddresses = this.to.map(user => {
-      if (user.name) {
-        return `"${encodeHeader(user.name)}" <${user.email}>`
-      }
-      return user.email
-    })
+    const toAddresses = this.to.map(formatAddress)
     this.headers['To'] = toAddresses.join(', ')
   }
 
@@ -301,11 +369,7 @@ export class Email {
       return
     }
     if (this.reply) {
-      let replyAddress = this.reply.email
-      if (this.reply.name) {
-        replyAddress = `"${encodeHeader(this.reply.name)}" <${replyAddress}>`
-      }
-      this.headers['Reply-To'] = replyAddress
+      this.headers['Reply-To'] = formatAddress(this.reply)
     }
   }
 
@@ -314,28 +378,18 @@ export class Email {
       return
     }
     if (this.cc) {
-      const ccAddresses = this.cc.map(user => {
-        if (user.name) {
-          return `"${encodeHeader(user.name)}" <${user.email}>`
-        }
-        return user.email
-      })
+      const ccAddresses = this.cc.map(formatAddress)
       this.headers['CC'] = ccAddresses.join(', ')
     }
   }
 
+  /**
+   * Blind copies travel in the SMTP envelope alone (see `rcpt`): a `BCC`
+   * header would show every recipient who else was copied.
+   */
   private resolveBCC() {
-    if (this.headers['BCC']) {
-      return
-    }
-    if (this.bcc) {
-      const bccAddresses = this.bcc.map(user => {
-        if (user.name) {
-          return `"${encodeHeader(user.name)}" <${user.email}>`
-        }
-        return user.email
-      })
-      this.headers['BCC'] = bccAddresses.join(', ')
-    }
+    delete this.headers['BCC']
+    delete this.headers['Bcc']
   }
+
 }

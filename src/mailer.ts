@@ -89,6 +89,9 @@ export class WorkerMailer {
   private readonly sendNotificationsTo: string | undefined
 
   private active = false
+  /** The one shutdown in progress, so a second `close` waits for it instead of racing it. */
+  private closing: Promise<void> | null = null
+  private socketClosed = false
 
   private emailSending: Email | null = null
   private emailToBeSent = new BlockingQueue<Email>()
@@ -143,8 +146,20 @@ export class WorkerMailer {
 
   static async connect(options: WorkerMailerOptions): Promise<WorkerMailer> {
     const mailer = new WorkerMailer(options)
-    await mailer.initializeSmtpSession()
-    mailer.start().catch(console.error)
+    try {
+      await mailer.initializeSmtpSession()
+    } catch (error) {
+      // The caller never gets an instance to close, so the socket is closed here.
+      mailer.closeSocket()
+      throw error
+    }
+    mailer.start().catch((error: unknown) => {
+      mailer.logger.error('Mail loop stopped')
+      mailer.logger.debug(
+        'Mail loop stopped: ' +
+          (error instanceof Error ? error.message : String(error)),
+      )
+    })
     return mailer
   }
 
@@ -159,22 +174,35 @@ export class WorkerMailer {
     email: EmailOptions,
   ): Promise<void> {
     const mailer = await WorkerMailer.connect(options)
-    await mailer.send(email)
-    await mailer.close()
+    try {
+      await mailer.send(email)
+    } finally {
+      await mailer.close()
+    }
   }
 
   private async readTimeout(): Promise<string> {
-    return execTimeout(
-      this.read(),
-      this.responseTimeoutMs,
-      new Error('Timeout while waiting for smtp server response'),
-    )
+    try {
+      return await execTimeout(
+        this.read(),
+        this.responseTimeoutMs,
+        new Error('Timeout while waiting for smtp server response'),
+      )
+    } catch (error) {
+      // A read that lost the race would otherwise stay pending on a socket
+      // nobody will answer on; closing it ends that read too.
+      this.closeSocket()
+      throw error
+    }
   }
 
   private async read(): Promise<string> {
     let response = ''
     while (true) {
-      const { value } = await this.reader.read()
+      const { value, done } = await this.reader.read()
+      if (done) {
+        throw new Error('SMTP server closed the connection')
+      }
       if (!value) {
         continue
       }
@@ -235,26 +263,41 @@ export class WorkerMailer {
         await this.body()
         this.emailSending!.setSent()
       } catch (e: any) {
-        this.logger.error('Failed to send email: ' + e.message)
+        // The error goes to the caller through `sent`; it quotes addresses and
+        // server replies, so only debug logging repeats it.
+        this.logger.error('Failed to send email')
+        this.logger.debug('Failed to send email: ' + e.message)
+        const failed = this.emailSending!
+        this.emailSending = null
         if (!this.active) {
+          failed.setSentError(e)
           return
         }
-        this.emailSending.setSentError(e)
+        // Recover before telling the caller, so a caller that closes as soon
+        // as its send fails never talks over the RSET exchange.
         try {
           await this.rset()
-        } catch (e: any) {
-          await this.close(e)
+        } catch (resetError: any) {
+          await this.close(resetError)
+          failed.setSentError(e)
+          return
         }
-        // If reset successfully, try to send next email
-        // otherwise `this.active` will be set to false in `close` function, and loop will be stopped
+        failed.setSentError(e)
+        continue
       }
       this.emailSending = null
     }
   }
 
-  public async close(error?: Error) {
+  public close(error?: Error): Promise<void> {
+    this.closing ??= this.shutdown(error)
+    return this.closing
+  }
+
+  private async shutdown(error?: Error) {
     this.active = false
-    this.logger.info('WorkerMailer is closed', error?.message || '')
+    this.logger.info('WorkerMailer is closed')
+    if (error) this.logger.debug('WorkerMailer closed after: ' + error.message)
     this.emailSending?.setSentError?.(
       error || new Error('WorkerMailer is shutting down'),
     )
@@ -264,14 +307,28 @@ export class WorkerMailer {
     }
 
     try {
-      await this.writeLine('QUIT')
-      await this.readTimeout()
-      this.socket
-        .close()
-        .catch(() => this.logger.error('Failed to close socket')) // If server-side close socket first it will never be solved, so just fire and forget
+      if (!this.socketClosed) {
+        await this.writeLine('QUIT')
+        await this.readTimeout()
+      }
     } catch (ignore) {
-      // maybe socket is closed now
-      // anyway, just keep it simple
+      // The server may already have closed it; either way it is closed below.
+    } finally {
+      this.closeSocket()
+    }
+  }
+
+  /**
+   * Closes the socket once, without waiting: a server that closed its side
+   * first never settles the close, so it is fire and forget.
+   */
+  private closeSocket() {
+    if (this.socketClosed) return
+    this.socketClosed = true
+    try {
+      void Promise.resolve(this.socket.close()).catch(() => {})
+    } catch {
+      // Already closed.
     }
   }
 
@@ -459,8 +516,12 @@ export class WorkerMailer {
     let message = `MAIL FROM: <${this.emailSending!.from.email}>`
     if (this.supportsDSN) {
       message += ` ${this.retBuilder()}`
-      if (this.emailSending?.dsnOverride?.envelopeId) {
-        message += ` ENVID=${this.emailSending?.dsnOverride?.envelopeId}`
+      const envelopeId = this.emailSending?.dsnOverride?.envelopeId
+      if (envelopeId) {
+        if (!/^[!-~]+$/.test(envelopeId) || /[+=]/.test(envelopeId)) {
+          throw new Error('envelopeId must be printable ASCII without spaces, "+" or "="')
+        }
+        message += ` ENVID=${envelopeId}`
       }
     }
 

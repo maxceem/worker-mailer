@@ -123,7 +123,7 @@ describe('Email', () => {
       }
     })
 
-    it('should include CC and BCC headers when provided', () => {
+    it('should include a CC header, and never a BCC one', () => {
       const email = new Email({
         from: 'sender@example.com',
         to: 'recipient@example.com',
@@ -143,9 +143,10 @@ describe('Email', () => {
           raw: '"CC2" <cc2@example.com>',
         },
       ])
-      expect(msg.bcc).toEqual([
-        { address: 'bcc@example.com', raw: 'bcc@example.com' },
-      ])
+      // Blind copies travel in the envelope only: a header would show them
+      // to every recipient.
+      expect(msg.bcc).toBeUndefined()
+      expect(data).not.toContain('bcc@example.com')
     })
 
     it('should include Reply-To when provided', () => {
@@ -207,7 +208,8 @@ describe('Email', () => {
       expect(data).toContain('From: custom-from@example.com')
       expect(data).toContain('To: custom-to@example.com')
       expect(data).toContain('CC: custom-cc@example.com')
-      expect(data).toContain('BCC: custom-bcc@example.com')
+      // Except BCC, which is never written, even when given as a header.
+      expect(data).not.toMatch(/^BCC:/im)
       expect(data).toContain('Reply-To: custom-reply@example.com')
       expect(data).toContain('Subject: Custom Subject')
       expect(data).toContain('X-Custom-Header: Custom Value')

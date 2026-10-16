@@ -1,5 +1,22 @@
 # worker-mailer
 
+## 1.4.0 (fork: @maxceem/worker-mailer)
+
+### Minor Changes
+
+- Refuse input that would inject SMTP commands or headers: addresses must be `local@domain` without whitespace, control characters or `<>()[],;:"\`; display names, the subject, header values, attachment names and MIME types must not contain line breaks or control characters; header names must be valid. The `Email` constructor throws instead of sending.
+- Never write a `BCC` header: blind copies go in the SMTP envelope only. Previously every recipient could see them.
+- Quote ASCII display names safely (escaping `"` and `\`), and write encoded non-ASCII names without quotes, as RFC 2047 requires. Exported as `formatAddress`.
+- Failed sends are logged at error level without their details, which quote addresses and server replies; the details stay at debug level, and the error still reaches the caller. The mail loop no longer logs through `console.error` regardless of `logLevel`.
+
+### Patch Changes
+
+- Reading stops when the server closes the connection, instead of spinning on end-of-stream until the timeout.
+- The socket is closed when connecting fails, when a reply times out, and when `QUIT` gets no answer. `close()` is idempotent: concurrent calls share one shutdown.
+- After a refused email, `RSET` completes before the send is rejected, so a caller that closes as soon as its send fails no longer talks over the reset.
+- `WorkerMailer.send` closes the connection when the send fails.
+- `envelopeId` must be valid xtext.
+
 ## 1.3.0 (fork: @maxceem/worker-mailer)
 
 ### Minor Changes
