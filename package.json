@@ -23,6 +23,7 @@
   },
   "license": "MIT",
   "scripts": {
+    "release": "node scripts/release.mjs",
     "build": "tsup",
     "test": "vitest",
     "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore",
