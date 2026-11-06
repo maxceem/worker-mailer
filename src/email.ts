@@ -1,6 +1,13 @@
 import { encode, encodeQuotedPrintable } from './utils'
 
-export function encodeHeader(text: string): string {
+/** What RFC 2047 section 5(3) lets an encoded word in a display name carry literally. */
+const PHRASE_SAFE = /^[A-Za-z0-9!*+\-/]$/
+
+/**
+ * Pass `phrase` for a display name: there `,`, `<`, `@`, quotes and the other
+ * address specials are encoded too, so they cannot add or replace an address.
+ */
+export function encodeHeader(text: string, phrase = false): string {
   // If the text contains any non-ASCII characters, encode the whole string
   if (!/[^\x00-\x7F]/.test(text)) {
     return text
@@ -10,14 +17,13 @@ export function encodeHeader(text: string): string {
 
   for (const byte of bytes) {
     // RFC 2047 specific rules for headers:
-    // - Printable ASCII except ?, =, _, and space
+    // - Unstructured text: printable ASCII except ?, =, _, and space
+    // - A phrase (display name): only PHRASE_SAFE
     // - Space becomes underscore
     if (
-      byte >= 33 &&
-      byte <= 126 &&
-      byte !== 63 &&
-      byte !== 61 &&
-      byte !== 95
+      phrase
+        ? PHRASE_SAFE.test(String.fromCharCode(byte))
+        : byte >= 33 && byte <= 126 && byte !== 63 && byte !== 61 && byte !== 95
     ) {
       // 63 = '?', 61 = '=', 95 = '_'
       encoded += String.fromCharCode(byte)
@@ -73,7 +79,7 @@ function checkText(value: string, field: string): string {
  */
 export function formatAddress(user: User): string {
   if (!user.name) return user.email
-  const encoded = encodeHeader(user.name)
+  const encoded = encodeHeader(user.name, true)
   if (encoded !== user.name) return `${encoded} <${user.email}>`
   return `"${user.name.replace(/[\\"]/g, '\\$&')}" <${user.email}>`
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { WorkerMailer } from '../../src/mailer'
 import { Email, formatAddress } from '../../src/email'
 import { connect } from 'cloudflare:sockets'
+import * as libqp from 'libqp'
 
 vi.mock('cloudflare:sockets', () => ({
   connect: vi.fn(),
@@ -246,6 +247,20 @@ describe('Email input validation', () => {
       /^=\?UTF-8\?Q\?[^"]+\?= <anna@example\.com>$/,
     )
     expect(formatAddress({ email: 'plain@example.com' })).toBe('plain@example.com')
+  })
+
+  it('encodes address specials in a non-ASCII display name, so it cannot add an address', () => {
+    // A parser splits the address list before it decodes encoded words.
+    for (const name of ['José,mallory@evil.example,x', 'José <mallory@evil.example>,', 'José "a" (b): c; d']) {
+      const user = { name, email: 'user@example.com' }
+      const data = new Email({ ...base, from: user, to: user, cc: user, reply: user }).getEmailData()
+      for (const header of ['From', 'To', 'CC', 'Reply-To']) {
+        const value = data.match(new RegExp(`^${header}: (.*)$`, 'm'))?.[1]
+        const word = value?.match(/^=\?UTF-8\?Q\?([A-Za-z0-9!*+\-/=_]+)\?= <user@example\.com>$/)?.[1]
+        expect(word, `${header}: ${value}`).toBeDefined()
+        expect(libqp.decode(word!.replace(/_/g, ' ')).toString()).toBe(name)
+      }
+    }
   })
 
   it('never writes a BCC header, in any letter case', () => {
