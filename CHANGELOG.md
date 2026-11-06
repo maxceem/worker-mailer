@@ -1,5 +1,11 @@
 # worker-mailer
 
+## 1.4.4 (fork: @maxceem/worker-mailer)
+
+### Patch Changes
+
+- A non-ASCII display name in `From`, `To`, `Cc` or `Reply-To` can no longer add an address: characters such as `,` `<` `>` `@` and `"` are now encoded inside the encoded word, so the name stays one mailbox. Subjects and ASCII names are unchanged.
+
 ## 1.4.3 (fork: @maxceem/worker-mailer)
 
 ### Patch Changes
